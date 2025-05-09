@@ -19,7 +19,7 @@ import (
 	"gopkg.in/yaml.v2"
 )
 
-// Config holds all agent settings, can be loaded from YAML or flags
+// Config holds all agent settings, can be loaded from a YAML file or flags
 type Config struct {
 	Listen   string        `yaml:"listen"`
 	Endpoint string        `yaml:"endpoint"`
@@ -30,23 +30,16 @@ type Config struct {
 }
 
 var (
-	// path to YAML config (optional)
-	configPath = flag.String("config", "",
-		"path to YAML config file")
+	// Optional path to a YAML config
+	configPath = flag.String("config", "", "path to YAML config file")
 
-	// fallback flags if no config file (or to override)
-	listenAddr    = flag.String("listen", "0.0.0.0:9000",
-		"host:port to listen for incoming events")
-	endpoint      = flag.String("endpoint", "https://collector.myserver.com/events",
-		"remote HTTP endpoint")
-	apiKey        = flag.String("api-key", "",
-		"API key for authenticating to collector")
-	flushInterval = flag.Duration("interval", 5*time.Second,
-		"how often to flush batches")
-	maxBatch = flag.Int("batch", 1000,
-		"maximum events per HTTP batch")
-	queueSize = flag.Int("queue", 50000,
-		"max events to buffer in memory")
+	// Fallback flags if no config file (or to override)
+	listenAddr    = flag.String("listen", "0.0.0.0:9000", "host:port to listen for incoming events")
+	endpoint      = flag.String("endpoint", "https://collector.myserver.com/events", "remote HTTP endpoint")
+	apiKey        = flag.String("api-key", "", "API key for authenticating to collector")
+	flushInterval = flag.Duration("interval", 5*time.Second, "how often to flush batches")
+	maxBatch      = flag.Int("batch", 1000, "maximum events per HTTP batch")
+	queueSize     = flag.Int("queue", 50000, "max events to buffer in memory")
 )
 
 func loadConfig(path string) (*Config, error) {
@@ -85,7 +78,7 @@ func applyConfig(cfg *Config) {
 func main() {
 	flag.Parse()
 
-	// 1) Load config file if provided
+	// 1) Load YAML config if provided
 	if *configPath != "" {
 		cfg, err := loadConfig(*configPath)
 		if err != nil {
@@ -96,23 +89,23 @@ func main() {
 
 	log.Printf("starting ezlogs_agent on %s → %s\n", *listenAddr, *endpoint)
 
-	// buffered channel for individual events
+	// buffered channel for incoming events
 	events := make(chan json.RawMessage, *queueSize)
 	var wg sync.WaitGroup
 
-	// 2) Listen for incoming TCP
+	// 2) Start TCP listener
 	ln, err := net.Listen("tcp", *listenAddr)
 	if err != nil {
 		log.Fatalf("listen failed: %v", err)
 	}
 
-	// 3) Handle shutdown: close listener on signal
+	// 3) Handle shutdown: close listener on SIGINT/SIGTERM
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 	go func() {
 		<-sigCh
 		log.Println("shutdown signal received, closing listener")
-		ln.Close() // triggers Accept() → error → exit loop
+		ln.Close()
 	}()
 
 	// 4) Accept loop
@@ -122,7 +115,7 @@ func main() {
 		for {
 			conn, err := ln.Accept()
 			if err != nil {
-				// closed network connection? time to exit
+				// exit if listener closed
 				if opErr, ok := err.(*net.OpError); ok && opErr.Err.Error() == "use of closed network connection" {
 					return
 				}
@@ -144,23 +137,21 @@ func main() {
 		}
 	}()
 
-	// wait for accept + flusher goroutines to finish
+	// 6) Wait for accept & flusher to finish, then final flush
 	wg.Wait()
-
-	// final flush of any remaining events
 	log.Println("flushing remaining events…")
 	drainAndSend(events)
 	log.Println("bye")
 }
 
-func handleConn(conn net.Conn, events chan<- json.RawMessage) {
+// handleConn needs bidirectional channel so it can both send and drop-oldest
+func handleConn(conn net.Conn, events chan json.RawMessage) {
 	defer conn.Close()
 	data, err := io.ReadAll(bufio.NewReader(conn))
 	if err != nil {
 		log.Printf("read error: %v", err)
 		return
 	}
-	// expect a JSON array of objects
 	var batch []json.RawMessage
 	if err := json.Unmarshal(data, &batch); err != nil {
 		log.Printf("invalid JSON from %s: %v", conn.RemoteAddr(), err)
@@ -178,8 +169,8 @@ func handleConn(conn net.Conn, events chan<- json.RawMessage) {
 	}
 }
 
-func drainAndSend(events chan json.RawMessage) {
-	// collect up to maxBatch
+// drainAndSend drains up to maxBatch events and POSTs them
+func drainAndSend(events <-chan json.RawMessage) {
 	batch := make([]json.RawMessage, 0, *maxBatch)
 	for i := 0; i < *maxBatch; i++ {
 		select {
@@ -210,7 +201,6 @@ func drainAndSend(events chan json.RawMessage) {
 	}
 
 	client := &http.Client{Timeout: 10 * time.Second}
-
 	// exponential backoff: 1s, 2s, 4s
 	for attempt := 0; attempt < 3; attempt++ {
 		resp, err := client.Do(req)
