@@ -35,3 +35,49 @@ forwards them in batches to your remote collector via HTTPS.
 1. **Build** (requires Go 1.18+):
    ```bash
    go build -o ezlogs_agent ./cmd/ezlogs_agent
+
+## Configuration
+Create a YAML file (e.g. ```/etc/ezlogs/ezlogs_agent.yaml```):
+```ruby
+# Ezlogs Go Agent configuration
+
+# TCP listener address
+listen:   "0.0.0.0:9000"
+
+# Remote collector endpoint (must include scheme)
+endpoint: "https://collector.myserver.com/events"
+
+# API key for Authorization header
+api_key:  "YOUR_API_KEY_HERE"
+
+# Flush interval (Go duration)
+interval: 5s
+
+# Maximum events per HTTP batch
+batch:    1000
+
+# In-memory buffer size (max queued events)
+queue:    50000
+```
+
+## Running
+**Using the config file**  
+```./ezlogs_agent --config /etc/ezlogs/ezlogs_agent.yaml```
+
+**Overriding via flags**  
+```ruby
+./ezlogs_agent \
+  --listen 127.0.0.1:9000 \
+  --endpoint https://collector.myserver.com/events \
+  --api-key YOUR_API_KEY \
+  --interval 5s \
+  --batch 1000 \
+  --queue 50000
+```
+
+## Usage
+- **Start the Go agent (as above).** 
+- **Point your Ruby gem at ```127.0.0.1:9000``` (default).** 
+- **Rails app calls ```EzlogsRubyAgent.writer.log(event_hash)```** 
+- **Go agent batches and ships events to your collector API.** 
+
