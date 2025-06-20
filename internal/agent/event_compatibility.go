@@ -1,0 +1,136 @@
+package agent
+
+import (
+	"encoding/json"
+	"fmt"
+	"time"
+
+	"github.com/sirupsen/logrus"
+)
+
+// UniversalEvent represents the event format sent by any EZLogs SDK (Ruby, Python, Java, etc.)
+type UniversalEvent struct {
+	EventType     string                 `json:"event_type"`
+	Action        string                 `json:"action"`
+	Actor         map[string]interface{} `json:"actor"`
+	Subject       map[string]interface{} `json:"subject,omitempty"`
+	Metadata      map[string]interface{} `json:"metadata,omitempty"`
+	Timestamp     string                 `json:"timestamp,omitempty"`
+	CorrelationID string                 `json:"correlation_id,omitempty"`
+	ServiceName   string                 `json:"service_name,omitempty"`
+	Environment   string                 `json:"environment,omitempty"`
+}
+
+// EventCompatibility provides validation and transformation for UniversalEvent batches
+// from any supported SDK.
+type EventCompatibility struct {
+	validate  bool
+	transform bool
+}
+
+// NewEventCompatibility creates a new event compatibility layer
+func NewEventCompatibility(validate, transform bool) *EventCompatibility {
+	return &EventCompatibility{validate: validate, transform: transform}
+}
+
+// ValidateProtocol checks if the payload is a valid UniversalEvent batch
+func (ec *EventCompatibility) ValidateProtocol(data []byte) error {
+	var arr []map[string]interface{}
+	if err := json.Unmarshal(data, &arr); err != nil {
+		return fmt.Errorf("invalid JSON array: %w", err)
+	}
+	if len(arr) == 0 {
+		return fmt.Errorf("empty event batch")
+	}
+	return nil
+}
+
+// ParseBatch parses a batch of UniversalEvents
+func (ec *EventCompatibility) ParseBatch(data []byte) ([]UniversalEvent, error) {
+	var arr []UniversalEvent
+	if err := json.Unmarshal(data, &arr); err != nil {
+		return nil, fmt.Errorf("invalid UniversalEvent batch: %w", err)
+	}
+	if ec.validate {
+		for i, evt := range arr {
+			if err := ec.validateEvent(evt); err != nil {
+				return nil, fmt.Errorf("event %d validation failed: %w", i, err)
+			}
+		}
+	}
+	return arr, nil
+}
+
+// validateEvent checks required fields and formats
+func (ec *EventCompatibility) validateEvent(evt UniversalEvent) error {
+	if evt.EventType == "" {
+		return fmt.Errorf("event_type is required")
+	}
+	if !ec.isValidEventType(evt.EventType) {
+		return fmt.Errorf("event_type must be in format 'namespace.category'")
+	}
+	if evt.Action == "" {
+		return fmt.Errorf("action is required")
+	}
+	if evt.Actor == nil {
+		return fmt.Errorf("actor is required")
+	}
+	if _, ok := evt.Actor["type"]; !ok {
+		return fmt.Errorf("actor.type is required")
+	}
+	if _, ok := evt.Actor["id"]; !ok {
+		return fmt.Errorf("actor.id is required")
+	}
+	if evt.Timestamp != "" {
+		if _, err := time.Parse(time.RFC3339, evt.Timestamp); err != nil {
+			return fmt.Errorf("invalid timestamp format: %w", err)
+		}
+	}
+	return nil
+}
+
+// isValidEventType checks for 'namespace.category' format
+func (ec *EventCompatibility) isValidEventType(eventType string) bool {
+	// Simple check: must contain one dot, no spaces
+	if len(eventType) < 3 || eventType[0] == '.' || eventType[len(eventType)-1] == '.' {
+		return false
+	}
+	count := 0
+	for _, c := range eventType {
+		if c == '.' {
+			count++
+		}
+	}
+	return count == 1
+}
+
+// TransformToCollectorFormat transforms UniversalEvents to the collector's expected format
+func (ec *EventCompatibility) TransformToCollectorFormat(events []UniversalEvent) []json.RawMessage {
+	var out []json.RawMessage
+	for _, evt := range events {
+		m := map[string]interface{}{
+			"event_type":     evt.EventType,
+			"action":         evt.Action,
+			"actor":          evt.Actor,
+			"subject":        evt.Subject,
+			"metadata":       evt.Metadata,
+			"timestamp":      evt.Timestamp,
+			"correlation_id": evt.CorrelationID,
+			"service_name":   evt.ServiceName,
+			"environment":    evt.Environment,
+		}
+		if ec.transform {
+			m["agent"] = map[string]interface{}{
+				"type":    "go",
+				"version": "1.0.0",
+			}
+		}
+		data, err := json.Marshal(m)
+		if err != nil {
+			logrus.WithError(err).Warn("Failed to marshal event for collector")
+			continue
+		}
+		out = append(out, data)
+	}
+	return out
+}

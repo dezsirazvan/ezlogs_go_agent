@@ -1,0 +1,63 @@
+# EZLogs Go Agent Configuration
+# This file configures the EZLogs Go Agent for production use
+
+# Server configuration
+server:
+  host: "0.0.0.0"  # Listen on all interfaces
+  port: 9000       # Default port for Ruby agent compatibility
+
+# Buffer configuration for event batching
+buffer:
+  max_size: 10000        # Maximum events in buffer
+  batch_size: 100        # Events per batch sent to collector
+  flush_interval: "5s"   # How often to flush batches
+
+# Collector configuration for forwarding to EZLogs service
+collector:
+  base_url: "https://collector.ezlogs.com"  # EZLogs collector endpoint
+  api_key: "your-api-key-here"              # Your EZLogs API key
+  timeout: "30s"                           # HTTP timeout
+  
+  # HTTP transport settings
+  max_idle_conns: 100
+  max_idle_conns_per_host: 10
+  idle_conn_timeout: "90s"
+  
+  # Circuit breaker settings
+  circuit_breaker:
+    failure_threshold: 5      # Failures before opening circuit
+    timeout: "60s"            # Time to wait before half-open
+    success_threshold: 3      # Successes to close circuit
+
+# Security configuration
+security:
+  enable_tls: false           # Enable TLS for secure connections
+  tls_cert_file: ""           # Path to TLS certificate
+  tls_key_file: ""            # Path to TLS private key
+  
+  # IP allow-listing (empty = allow all)
+  allowed_hosts:
+    - "127.0.0.1"             # Localhost
+    - "10.0.0.0/8"            # Private network
+    - "192.168.0.0/16"        # Private network
+  
+  rate_limit: 1000            # Requests per second per IP
+
+# Metrics configuration
+metrics:
+  enabled: true
+  host: "0.0.0.0"
+  port: 9090
+  path: "/metrics"
+
+# Health check configuration
+health:
+  enabled: true
+  host: "0.0.0.0"
+  port: 8080
+  path: "/health"
+
+# Logging configuration
+logging:
+  level: "info"               # debug, info, warn, error
+  format: "json"              # json or text 
