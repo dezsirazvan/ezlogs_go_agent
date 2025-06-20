@@ -42,24 +42,24 @@ type ServerConfig struct {
 
 // CollectorConfig holds configuration for the collector service
 type CollectorConfig struct {
-	BaseURL string        `yaml:"base_url" env:"COLLECTOR_BASE_URL" default:"https://collector.ezlogs.com"`
-	APIKey  string        `yaml:"api_key" env:"COLLECTOR_API_KEY" required:"true"`
-	Timeout time.Duration `yaml:"timeout" env:"COLLECTOR_TIMEOUT" default:"30s"`
+	BaseURL string        `mapstructure:"base_url" yaml:"base_url" env:"COLLECTOR_BASE_URL" default:"https://collector.ezlogs.com"`
+	APIKey  string        `mapstructure:"api_key" yaml:"api_key" env:"COLLECTOR_API_KEY" required:"true"`
+	Timeout time.Duration `mapstructure:"timeout" yaml:"timeout" env:"COLLECTOR_TIMEOUT" default:"30s"`
 
 	// HTTP transport settings
-	MaxIdleConns        int           `yaml:"max_idle_conns" env:"COLLECTOR_MAX_IDLE_CONNS" default:"100"`
-	MaxIdleConnsPerHost int           `yaml:"max_idle_conns_per_host" env:"COLLECTOR_MAX_IDLE_CONNS_PER_HOST" default:"10"`
-	IdleConnTimeout     time.Duration `yaml:"idle_conn_timeout" env:"COLLECTOR_IDLE_CONN_TIMEOUT" default:"90s"`
+	MaxIdleConns        int           `mapstructure:"max_idle_conns" yaml:"max_idle_conns" env:"COLLECTOR_MAX_IDLE_CONNS" default:"100"`
+	MaxIdleConnsPerHost int           `mapstructure:"max_idle_conns_per_host" yaml:"max_idle_conns_per_host" env:"COLLECTOR_MAX_IDLE_CONNS_PER_HOST" default:"10"`
+	IdleConnTimeout     time.Duration `mapstructure:"idle_conn_timeout" yaml:"idle_conn_timeout" env:"COLLECTOR_IDLE_CONN_TIMEOUT" default:"90s"`
 
 	// Circuit breaker settings
-	CircuitBreaker CircuitBreakerConfig `yaml:"circuit_breaker"`
+	CircuitBreaker CircuitBreakerConfig `mapstructure:"circuit_breaker" yaml:"circuit_breaker"`
 }
 
 // CircuitBreakerConfig holds circuit breaker configuration
 type CircuitBreakerConfig struct {
-	FailureThreshold int           `yaml:"failure_threshold" env:"COLLECTOR_CB_FAILURE_THRESHOLD" default:"5"`
-	Timeout          time.Duration `yaml:"timeout" env:"COLLECTOR_CB_TIMEOUT" default:"60s"`
-	SuccessThreshold int           `yaml:"success_threshold" env:"COLLECTOR_CB_SUCCESS_THRESHOLD" default:"3"`
+	FailureThreshold int           `mapstructure:"failure_threshold" yaml:"failure_threshold" env:"COLLECTOR_CB_FAILURE_THRESHOLD" default:"5"`
+	Timeout          time.Duration `mapstructure:"timeout" yaml:"timeout" env:"COLLECTOR_CB_TIMEOUT" default:"60s"`
+	SuccessThreshold int           `mapstructure:"success_threshold" yaml:"success_threshold" env:"COLLECTOR_CB_SUCCESS_THRESHOLD" default:"3"`
 }
 
 // BufferConfig holds event buffering settings

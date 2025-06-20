@@ -12,9 +12,9 @@ import (
 type CircuitBreakerState int
 
 const (
-	StateClosed CircuitBreakerState = iota
-	StateOpen
-	StateHalfOpen
+	StateOpen     CircuitBreakerState = 0
+	StateHalfOpen CircuitBreakerState = 1
+	StateClosed   CircuitBreakerState = 2
 )
 
 // CircuitBreaker provides circuit breaker functionality for the collector
@@ -69,7 +69,14 @@ func (cb *CircuitBreaker) canExecute() bool {
 		return true
 	case StateOpen:
 		// Check if timeout has passed
-		if time.Since(cb.lastFailureTime) >= cb.timeout {
+		timeSinceFailure := time.Since(cb.lastFailureTime)
+		if timeSinceFailure >= cb.timeout {
+			logrus.WithFields(logrus.Fields{
+				"time_since_failure": timeSinceFailure,
+				"timeout":            cb.timeout,
+				"current_state":      cb.state,
+			}).Debug("Circuit breaker timeout reached, transitioning to half-open")
+
 			cb.mu.RUnlock()
 			cb.mu.Lock()
 			cb.transitionToHalfOpen()
@@ -77,6 +84,10 @@ func (cb *CircuitBreaker) canExecute() bool {
 			cb.mu.RLock()
 			return true
 		}
+		logrus.WithFields(logrus.Fields{
+			"time_since_failure": timeSinceFailure,
+			"timeout":            cb.timeout,
+		}).Debug("Circuit breaker still in timeout period")
 		return false
 	case StateHalfOpen:
 		return true
@@ -100,7 +111,6 @@ func (cb *CircuitBreaker) recordResult(err error) {
 // recordFailure records a failure
 func (cb *CircuitBreaker) recordFailure() {
 	cb.failureCount++
-	cb.successCount = 0
 	cb.lastFailureTime = time.Now()
 
 	switch cb.state {
@@ -116,7 +126,6 @@ func (cb *CircuitBreaker) recordFailure() {
 // recordSuccess records a success
 func (cb *CircuitBreaker) recordSuccess() {
 	cb.successCount++
-	cb.failureCount = 0
 
 	switch cb.state {
 	case StateHalfOpen:
@@ -130,33 +139,42 @@ func (cb *CircuitBreaker) recordSuccess() {
 func (cb *CircuitBreaker) transitionToOpen() {
 	if cb.state != StateOpen {
 		logrus.WithFields(logrus.Fields{
-			"state":             cb.state,
+			"old_state":         cb.state,
 			"failure_count":     cb.failureCount,
 			"failure_threshold": cb.failureThreshold,
 		}).Warn("Circuit breaker opened")
 
 		cb.state = StateOpen
 		cb.lastStateChange = time.Now()
+		// Reset counters when transitioning to open
+		cb.failureCount = 0
+		cb.successCount = 0
 	}
 }
 
 // transitionToHalfOpen transitions the circuit breaker to half-open state
 func (cb *CircuitBreaker) transitionToHalfOpen() {
 	if cb.state != StateHalfOpen {
-		logrus.WithField("state", cb.state).Info("Circuit breaker half-open")
+		logrus.WithField("old_state", cb.state).Info("Circuit breaker half-open")
 
 		cb.state = StateHalfOpen
 		cb.lastStateChange = time.Now()
+		// Reset counters when transitioning to half-open
+		cb.failureCount = 0
+		cb.successCount = 0
 	}
 }
 
 // transitionToClosed transitions the circuit breaker to closed state
 func (cb *CircuitBreaker) transitionToClosed() {
 	if cb.state != StateClosed {
-		logrus.WithField("state", cb.state).Info("Circuit breaker closed")
+		logrus.WithField("old_state", cb.state).Info("Circuit breaker closed")
 
 		cb.state = StateClosed
 		cb.lastStateChange = time.Now()
+		// Reset counters when transitioning to closed
+		cb.failureCount = 0
+		cb.successCount = 0
 	}
 }
 

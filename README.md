@@ -1,86 +1,85 @@
 # EZLogs Go Agent
 
-A **production-ready, high-performance** event forwarding service that acts as a local buffer between applications and the EZLogs collector service. Fully compatible with all EZLogs SDKs (Ruby, Python, Java, etc.).
+A **production-grade, high-performance** event forwarding service that acts as a local buffer between your applications and the EZLogs collector. Fully compatible with all EZLogs SDKs (Ruby, Python, Java, etc.).
 
-## 🚀 Features
+---
 
-- **High Performance**: Sub-millisecond latency, 100k+ events/sec throughput
-- **Production Ready**: Metrics, health checks, graceful shutdown, error handling
-- **Easy Configuration**: YAML config, environment variables, or command-line flags
-- **Multi-Language SDK Compatible**: Drop-in replacement for any EZLogs SDK (Ruby, Python, Java, etc.)
-- **Observability**: Prometheus metrics and health endpoints
-- **Security**: TLS support, IP allow-listing, rate limiting
-- **Reliability**: Automatic retries, circuit breakers, graceful degradation
+## 🏁 EZ Start (First Event in 2 Minutes)
 
-## 📦 Quick Start
+1. **Build the Agent**
+   ```bash
+   go build -o ezlogs-agent ./cmd/ezlogs-agent
+   ```
+2. **Create a Minimal Config**
+   ```yaml
+   # config.yaml
+   server:
+     host: "0.0.0.0"
+     port: 9000
+   collector:
+     endpoint: "https://collector.ezlogs.com/events"
+     api_key: "your-api-key"
+   ```
+3. **Run the Agent**
+   ```bash
+   ./ezlogs-agent --config config.yaml
+   ```
+4. **Point Your SDK to the Agent**
+   - **Ruby**:
+     ```ruby
+     EzlogsRubyAgent.configure do |c|
+       c.endpoint = "tcp://localhost:9000"
+     end
+     ```
+   - **Python**:
+     ```python
+     ezlogs.configure(endpoint="tcp://localhost:9000")
+     ```
+   - **Java**:
+     ```java
+     EzlogsClient client = new EzlogsClient("tcp://localhost:9000");
+     ```
+5. **Send a Test Event** (see schema below)
 
-### 1. Build the Agent
-```bash
-go build -o ezlogs-agent ./cmd/ezlogs-agent
-```
+---
 
-### 2. Create Configuration
+## 🌍 Project Overview
+
+- **What:** Local, secure, high-throughput event buffer and forwarder for EZLogs
+- **Why:** Offload your app, guarantee delivery, enable sub-ms logging, and add observability
+- **Who:** Any team using EZLogs in production (works with Ruby, Python, Java, ...)
+- **How:** Drop-in, zero-config, runs as a sidecar or service
+
+---
+
+## ⚙️ Configuration
+
+- **YAML file:** `--config config.yaml`
+- **Environment:** All options as `EZLOGS_*` variables
+- **CLI flags:** All options as `--flag value`
+- **Docker:** See below
+
+**Example config:**
 ```yaml
-# config.yaml
 server:
   host: "0.0.0.0"
   port: 9000
-
 collector:
   endpoint: "https://collector.ezlogs.com/events"
   api_key: "your-api-key"
-
 buffer:
   max_size: 50000
   flush_interval: 5s
   batch_size: 1000
-
-# Optional: Metrics and Health (enabled by default)
 metrics:
   enabled: true
   port: 9090
-
 health:
   enabled: true
   port: 8080
 ```
 
-### 3. Run the Agent
-```bash
-# Using config file
-./ezlogs-agent --config config.yaml
-
-# Using environment variables
-EZLOGS_COLLECTOR_API_KEY=your-key ./ezlogs-agent
-
-# Using command-line flags
-./ezlogs-agent --collector-endpoint https://collector.ezlogs.com/events --collector-api-key your-key
-```
-
-### 4. Point Your SDK (Ruby, Python, Java, etc.)
-
-Configure your EZLogs SDK to send events to the Go agent:
-
-- **Ruby**:
-  ```ruby
-  EzlogsRubyAgent.configure do |config|
-    config.endpoint = "tcp://localhost:9000"  # Point to Go agent
-  end
-  ```
-- **Python**:
-  ```python
-  ezlogs.configure(endpoint="tcp://localhost:9000")
-  ```
-- **Java**:
-  ```java
-  EzlogsClient client = new EzlogsClient("tcp://localhost:9000");
-  ```
-
-## 🔧 Configuration
-
-### Environment Variables
-All settings can be configured via environment variables with the `EZLOGS_` prefix:
-
+**Environment variables:**
 ```bash
 EZLOGS_SERVER_HOST=127.0.0.1
 EZLOGS_SERVER_PORT=9000
@@ -91,93 +90,89 @@ EZLOGS_BUFFER_FLUSH_INTERVAL=5s
 EZLOGS_BUFFER_BATCH_SIZE=1000
 ```
 
-### Command-Line Flags
-Override any setting via command-line flags:
-
+**CLI flags:**
 ```bash
-./ezlogs-agent \
-  --server-host 127.0.0.1 \
-  --server-port 9000 \
-  --collector-endpoint https://collector.ezlogs.com/events \
-  --collector-api-key your-key \
-  --buffer-max-size 50000 \
-  --buffer-flush-interval 5s \
-  --buffer-batch-size 1000
+./ezlogs-agent --server-host 127.0.0.1 --server-port 9000 --collector-endpoint https://collector.ezlogs.com/events --collector-api-key your-key
 ```
 
-## 📊 Monitoring
+---
 
-### Prometheus Metrics
-When enabled (default), metrics are available at `http://localhost:9090/metrics`:
+## 🤝 Multi-Language SDK Integration
 
-- `ezlogs_events_received_total` - Events received via TCP
-- `ezlogs_events_sent_total` - Events sent to collector
-- `ezlogs_events_dropped_total` - Events dropped (buffer full, errors)
-- `ezlogs_buffer_size` - Current events in buffer
-- `ezlogs_active_connections` - Active TCP connections
-- `ezlogs_http_requests_total` - HTTP requests to collector
-- `ezlogs_http_duration_seconds` - HTTP request duration
+Point any EZLogs SDK to the Go agent:
+- **Ruby:** `tcp://localhost:9000`
+- **Python:** `tcp://localhost:9000`
+- **Java:** `tcp://localhost:9000`
+- **Other:** Any language that can send TCP or HTTP POST to `/events` with UniversalEvent JSON
 
-### Health Checks
-Health endpoints are available at:
-- `http://localhost:8080/health` - Liveness probe
-- `http://localhost:8080/ready` - Readiness probe
+---
 
-Response format:
+## 📝 UniversalEvent Schema
+
+All events must follow this schema:
 ```json
 {
-  "status": "healthy",
-  "timestamp": "2024-01-15T10:30:00Z",
-  "checks": [
-    {
-      "name": "tcp_listener",
-      "status": "healthy",
-      "message": "TCP listener is running"
-    },
-    {
-      "name": "buffer",
-      "status": "healthy", 
-      "message": "Buffer is operational"
-    },
-    {
-      "name": "collector",
-      "status": "healthy",
-      "message": "Collector is configured"
-    }
-  ]
+  "event_type": "namespace.category",  // Required
+  "action": "specific_action",         // Required
+  "actor": { "type": "user", "id": "123" }, // Required
+  "subject": { "type": "resource", "id": "456" }, // Optional
+  "metadata": { "key": "value" },    // Optional
+  "timestamp": "2024-01-15T10:30:00Z", // Optional (defaults to now)
+  "correlation_id": "corr_abc123"      // Optional (auto-generated)
 }
 ```
+- Send as a JSON array to `/events` endpoint for batch delivery.
+- See [docs/universal_event.md](docs/universal_event.md) for full details.
+
+---
+
+## 📊 Monitoring & Observability
+
+- **Prometheus metrics:** `http://localhost:9090/metrics`
+  - `ezlogs_events_received_total`, `ezlogs_events_sent_total`, `ezlogs_events_dropped_total`, `ezlogs_buffer_size`, `ezlogs_active_connections`, `ezlogs_http_requests_total`, `ezlogs_http_duration_seconds`
+- **Health endpoints:**
+  - Liveness: `http://localhost:8080/health`
+  - Readiness: `http://localhost:8080/ready`
+- **Example health response:**
+  ```json
+  {
+    "status": "healthy",
+    "timestamp": "2024-01-15T10:30:00Z",
+    "checks": [
+      { "name": "tcp_listener", "status": "healthy", "message": "TCP listener is running" },
+      { "name": "buffer", "status": "healthy", "message": "Buffer is operational" },
+      { "name": "collector", "status": "healthy", "message": "Collector is configured" }
+    ]
+  }
+  ```
+
+---
 
 ## 🔒 Security
 
-### TLS Support
-Enable TLS for secure TCP connections:
+- **TLS:**
+  ```yaml
+  security:
+    enable_tls: true
+    tls_cert_file: "/path/to/cert.pem"
+    tls_key_file: "/path/to/key.pem"
+  ```
+- **IP allow-list:**
+  ```yaml
+  security:
+    allowed_hosts:
+      - "127.0.0.1"
+      - "10.0.0.0/8"
+      - "192.168.1.0/24"
+  ```
+- **Rate limiting:**
+  ```yaml
+  security:
+    rate_limit: 10000  # events per second
+  ```
+- **Best practices:** Never log API keys or PII, validate all input, use secure defaults.
 
-```yaml
-security:
-  enable_tls: true
-  tls_cert_file: "/path/to/cert.pem"
-  tls_key_file: "/path/to/key.pem"
-```
-
-### IP Allow-Listing
-Restrict access to specific IP addresses:
-
-```yaml
-security:
-  allowed_hosts:
-    - "127.0.0.1"
-    - "10.0.0.0/8"
-    - "192.168.1.0/24"
-```
-
-### Rate Limiting
-Limit events per second per client:
-
-```yaml
-security:
-  rate_limit: 10000  # events per second
-```
+---
 
 ## 🐳 Docker Deployment
 
@@ -196,91 +191,34 @@ EXPOSE 9000 9090 8080
 CMD ["./ezlogs-agent", "--config", "/etc/ezlogs/ezlogs-agent.yaml"]
 ```
 
-## 📝 UniversalEvent Schema
+---
 
-All SDKs must send events as a JSON array of UniversalEvent objects to the `/events` endpoint (via HTTP POST or TCP):
+## 🛠️ Troubleshooting & FAQ
 
-```json
-[
-  {
-    "event_type": "user.login",
-    "action": "success",
-    "actor": { "type": "user", "id": "123" },
-    "subject": { "type": "session", "id": "abc" },
-    "metadata": { "ip": "1.2.3.4" },
-    "timestamp": "2024-01-15T10:30:00Z",
-    "correlation_id": "corr_abc123",
-    "service_name": "my-app",
-    "environment": "production"
-  }
-]
-```
+- **Agent won't start:** Check config file path, permissions, and required fields.
+- **Events not delivered:** Check buffer/collector config, network, and logs for errors.
+- **Metrics/health endpoints not available:** Ensure ports are open and not in use.
+- **High latency:** Tune buffer size, batch size, and flush interval.
+- **How do I debug?** Run with increased log level, check `/metrics` and `/health` endpoints.
+- **How do I upgrade?** Stop agent, replace binary, restart. Config is backward compatible.
 
-- `event_type` (string, required): Dot notation, e.g., `user.login`
-- `action` (string, required): What happened
-- `actor` (object, required): Who did it (`type`, `id` required)
-- `subject` (object, optional): What was acted upon
-- `metadata` (object, optional): Additional context
-- `timestamp` (string, optional): RFC3339 format (defaults to now if missing)
-- `correlation_id` (string, optional): For distributed tracing
-- `service_name` (string, optional): Name of the emitting service
-- `environment` (string, optional): Environment (e.g., production, staging)
+---
 
-## 🔄 SDK Compatibility & Migration
+## ⚡ Advanced: Performance, Circuit Breakers, Graceful Shutdown
 
-The Go agent is a **drop-in replacement** for any EZLogs SDK:
+- **Performance:** Designed for 100k+ events/sec, sub-ms latency. Tune buffer and batch settings for your workload.
+- **Circuit breaker:** Automatically disables collector on repeated failures, retries with backoff.
+- **Graceful shutdown:** Handles SIGTERM, flushes buffer, closes connections cleanly.
+- **Resource monitoring:** Tracks CPU, memory, goroutines (see `/metrics`).
 
-1. **Same Protocol**: Accepts the same JSON UniversalEvent format
-2. **Same Configuration**: Compatible configuration options
-3. **Same Behavior**: Identical buffering and forwarding logic
-4. **Better Performance**: 10x faster than most language SDKs
-5. **Lower Resource Usage**: Minimal memory and CPU footprint
+---
 
-### Migration Example (Ruby)
-If you are migrating from the Ruby agent:
+## 🤝 Contributing & License
 
-```ruby
-# Before (Ruby agent)
-EzlogsRubyAgent.configure do |config|
-  config.endpoint = "https://collector.ezlogs.com/events"
-end
+- PRs welcome! Please add tests and docs for new features.
+- Licensed under MIT. See [LICENSE.txt](LICENSE.txt).
 
-# After (Go agent)
-EzlogsRubyAgent.configure do |config|
-  config.endpoint = "tcp://localhost:9000"  # Point to Go agent
-end
-```
+---
 
-For other SDKs, simply update the endpoint to point to your Go agent instance.
-
-## 🚀 Performance
-
-- **Latency**: < 1ms event processing
-- **Throughput**: 100,000+ events/second
-- **Memory**: < 50MB typical usage
-- **CPU**: < 5% typical usage
-- **Concurrent Connections**: 10,000+ supported
-
-## 📝 Logging
-
-Structured logging with configurable levels and formats:
-
-```yaml
-logging:
-  level: "info"      # debug, info, warn, error
-  format: "json"     # json, text
-  output: "stdout"   # stdout, stderr, or file path
-```
-
-## 🤝 Contributing
-
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Add tests
-5. Submit a pull request
-
-## 📄 License
-
-MIT License - see LICENSE file for details.
+**EZLogs Go Agent** – Secure, fast, production-ready event delivery for every language.
 
