@@ -10,7 +10,9 @@ import (
 	"bufio"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
+	"strings"
 
 	"github.com/dezsirazvan/ezlogs_go_agent/internal/buffer"
 	"github.com/dezsirazvan/ezlogs_go_agent/internal/collector"
@@ -371,6 +373,17 @@ func (a *agentImpl) checkHTTPSecurity(r *http.Request) bool {
 
 // processEvents processes events from either TCP or HTTP
 func (a *agentImpl) processEvents(data []byte, remoteAddr string) error {
+	// Log raw event data for debugging (first 1000 chars)
+	dataPreview := string(data)
+	if len(dataPreview) > 1000 {
+		dataPreview = dataPreview[:1000] + "..."
+	}
+	logrus.WithFields(logrus.Fields{
+		"remote":      remoteAddr,
+		"raw_data":    dataPreview,
+		"data_length": len(data),
+	}).Info("📥 RAW EVENT DATA RECEIVED")
+
 	// Validate protocol
 	if err := a.eventCompat.ValidateProtocol(data); err != nil {
 		logrus.WithError(err).WithField("remote", remoteAddr).Warn("Invalid event protocol")
@@ -384,8 +397,20 @@ func (a *agentImpl) processEvents(data []byte, remoteAddr string) error {
 		return err
 	}
 
+	// Log parsed events for debugging
+	logrus.WithFields(logrus.Fields{
+		"remote":        remoteAddr,
+		"parsed_events": events,
+	}).Info("🔍 PARSED EVENTS STRUCTURE")
+
 	// Transform to collector format
 	collectorEvents := a.eventCompat.TransformToCollectorFormat(events)
+
+	// Log transformed events for debugging
+	logrus.WithFields(logrus.Fields{
+		"remote":           remoteAddr,
+		"collector_events": collectorEvents,
+	}).Info("🚀 TRANSFORMED EVENTS FOR COLLECTOR")
 
 	logrus.WithFields(logrus.Fields{
 		"remote": remoteAddr,
@@ -423,12 +448,37 @@ func (a *agentImpl) checkConnectionSecurity(conn net.Conn) bool {
 }
 
 // handleTCPConn reads JSON event batches from a TCP connection
+// Now supports both raw JSON and HTTP requests for better compatibility
 func (a *agentImpl) handleTCPConn(conn net.Conn) {
 	defer a.wg.Done()
 	defer conn.Close()
 	defer a.metrics.ConnectionClosed()
 
+	// Set a read timeout to prevent hanging connections
+	conn.SetReadDeadline(time.Now().Add(30 * time.Second))
+
 	reader := bufio.NewReader(conn)
+
+	// Peek at the first few bytes to detect protocol
+	firstBytes, err := reader.Peek(8)
+	if err != nil {
+		logrus.WithError(err).WithField("remote", conn.RemoteAddr().String()).Warn("Failed to peek at connection data")
+		return
+	}
+
+	// Check if this looks like an HTTP request
+	firstLine := string(firstBytes)
+	if strings.HasPrefix(firstLine, "GET ") || strings.HasPrefix(firstLine, "POST ") ||
+		strings.HasPrefix(firstLine, "PUT ") || strings.HasPrefix(firstLine, "DELETE ") ||
+		strings.HasPrefix(firstLine, "PATCH ") || strings.HasPrefix(firstLine, "HEAD ") ||
+		strings.HasPrefix(firstLine, "OPTIONS ") {
+
+		logrus.WithField("remote", conn.RemoteAddr().String()).Info("Detected HTTP request on TCP port, handling as HTTP")
+		a.handleHTTPOverTCP(conn, reader)
+		return
+	}
+
+	// Handle as raw TCP JSON (original behavior)
 	data, err := io.ReadAll(reader)
 	if err != nil {
 		logrus.WithError(err).WithField("remote", conn.RemoteAddr().String()).Warn("Read error")
@@ -440,6 +490,115 @@ func (a *agentImpl) handleTCPConn(conn net.Conn) {
 		logrus.WithError(err).WithField("remote", conn.RemoteAddr().String()).Warn("Failed to process TCP events")
 		return
 	}
+
+	logrus.WithField("remote", conn.RemoteAddr().String()).Debug("Successfully processed TCP JSON events")
+}
+
+// handleHTTPOverTCP handles HTTP requests sent to the TCP port
+func (a *agentImpl) handleHTTPOverTCP(conn net.Conn, reader *bufio.Reader) {
+	defer func() {
+		if r := recover(); r != nil {
+			logrus.WithField("remote", conn.RemoteAddr().String()).Error("Panic in HTTP over TCP handler")
+		}
+	}()
+
+	// Read the HTTP request line by line
+	request, err := http.ReadRequest(reader)
+	if err != nil {
+		logrus.WithError(err).WithField("remote", conn.RemoteAddr().String()).Warn("Failed to parse HTTP request over TCP")
+		a.writeHTTPResponse(conn, 400, "Bad Request", "Invalid HTTP request")
+		return
+	}
+	defer request.Body.Close()
+
+	// Check if this is a supported endpoint
+	if request.URL.Path != "/events" && request.URL.Path != "/" {
+		a.writeHTTPResponse(conn, 404, "Not Found", "Endpoint not found. Use /events for event submission.")
+		return
+	}
+
+	// Only support POST for event submission
+	if request.Method != "POST" {
+		if request.Method == "GET" {
+			a.writeHTTPResponse(conn, 200, "OK", `{"status":"ok","message":"EZLogs Go Agent is running","tcp_port":`+fmt.Sprintf("%d", a.cfg.Server.Port)+`,"protocol":"supports both raw TCP JSON and HTTP"}`)
+			return
+		}
+		a.writeHTTPResponse(conn, 405, "Method Not Allowed", "Only POST method is supported for /events")
+		return
+	}
+
+	// Security checks (adapted from HTTP handler)
+	if !a.checkHTTPSecurityForTCP(request, conn) {
+		a.writeHTTPResponse(conn, 403, "Forbidden", "Request rejected by security policy")
+		return
+	}
+
+	// Read request body
+	data, err := io.ReadAll(request.Body)
+	if err != nil {
+		logrus.WithError(err).WithField("remote", conn.RemoteAddr().String()).Warn("Failed to read HTTP request body over TCP")
+		a.writeHTTPResponse(conn, 400, "Bad Request", "Failed to read request body")
+		return
+	}
+
+	// Validate payload
+	if err := a.security.ValidatePayload(data); err != nil {
+		logrus.WithError(err).WithField("remote", conn.RemoteAddr().String()).Warn("Invalid HTTP payload over TCP")
+		a.writeHTTPResponse(conn, 400, "Bad Request", "Invalid payload")
+		return
+	}
+
+	// Process events (same as TCP and HTTP handlers)
+	if err := a.processEvents(data, conn.RemoteAddr().String()); err != nil {
+		logrus.WithError(err).WithField("remote", conn.RemoteAddr().String()).Warn("Failed to process HTTP events over TCP")
+		a.writeHTTPResponse(conn, 500, "Internal Server Error", "Failed to process events")
+		return
+	}
+
+	// Return success response
+	a.writeHTTPResponse(conn, 200, "OK", `{"status":"ok","message":"Events processed successfully"}`)
+
+	logrus.WithField("remote", conn.RemoteAddr().String()).Info("Successfully processed HTTP request over TCP")
+}
+
+// writeHTTPResponse writes a basic HTTP response to a TCP connection
+func (a *agentImpl) writeHTTPResponse(conn net.Conn, statusCode int, statusText, body string) {
+	response := fmt.Sprintf("HTTP/1.1 %d %s\r\nContent-Type: application/json\r\nContent-Length: %d\r\nConnection: close\r\n\r\n%s",
+		statusCode, statusText, len(body), body)
+
+	conn.Write([]byte(response))
+}
+
+// checkHTTPSecurityForTCP performs security checks on HTTP requests over TCP
+func (a *agentImpl) checkHTTPSecurityForTCP(r *http.Request, conn net.Conn) bool {
+	// Extract client IP from the actual TCP connection (not the HTTP request RemoteAddr)
+	clientIP := conn.RemoteAddr().String()
+
+	// Parse IP
+	host, _, err := net.SplitHostPort(clientIP)
+	if err != nil {
+		host = clientIP
+	}
+
+	ip := net.ParseIP(host)
+	if ip == nil {
+		logrus.WithField("remote", clientIP).Warn("HTTP over TCP request rejected: invalid IP")
+		return false
+	}
+
+	// Check IP allow-listing
+	if !a.security.IsIPAllowed(ip) {
+		logrus.WithField("remote", clientIP).Warn("HTTP over TCP request rejected: IP not allowed")
+		return false
+	}
+
+	// Check rate limiting
+	if !a.security.CheckRateLimit(ip.String()) {
+		logrus.WithField("remote", clientIP).Warn("HTTP over TCP request rejected: rate limit exceeded")
+		return false
+	}
+
+	return true
 }
 
 // flushBuffer drains the buffer and sends events to collector

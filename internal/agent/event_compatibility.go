@@ -33,55 +33,32 @@ func NewEventCompatibility(validate, transform bool) *EventCompatibility {
 	return &EventCompatibility{validate: validate, transform: transform}
 }
 
-// ValidateProtocol checks if the payload is a valid UniversalEvent batch or single event
+// ValidateProtocol checks if the payload is a valid UniversalEvent batch
 func (ec *EventCompatibility) ValidateProtocol(data []byte) error {
-	// Try to unmarshal as array first (batch)
 	var arr []map[string]interface{}
-	if err := json.Unmarshal(data, &arr); err == nil {
-		if len(arr) == 0 {
-			return fmt.Errorf("empty event batch")
-		}
-		return nil
+	if err := json.Unmarshal(data, &arr); err != nil {
+		return fmt.Errorf("invalid JSON array: %w", err)
 	}
-
-	// If array parsing fails, try single event
-	var single map[string]interface{}
-	if err := json.Unmarshal(data, &single); err != nil {
-		return fmt.Errorf("invalid JSON format - not an array or single event: %w", err)
+	if len(arr) == 0 {
+		return fmt.Errorf("empty event batch")
 	}
-
 	return nil
 }
 
-// ParseBatch parses a batch of UniversalEvents or a single event
+// ParseBatch parses a batch of UniversalEvents
 func (ec *EventCompatibility) ParseBatch(data []byte) ([]UniversalEvent, error) {
-	// Try to parse as array first (batch format)
 	var arr []UniversalEvent
-	if err := json.Unmarshal(data, &arr); err == nil {
-		if ec.validate {
-			for i, evt := range arr {
-				if err := ec.validateEvent(evt); err != nil {
-					return nil, fmt.Errorf("event %d validation failed: %w", i, err)
-				}
+	if err := json.Unmarshal(data, &arr); err != nil {
+		return nil, fmt.Errorf("invalid UniversalEvent batch: %w", err)
+	}
+	if ec.validate {
+		for i, evt := range arr {
+			if err := ec.validateEvent(evt); err != nil {
+				return nil, fmt.Errorf("event %d validation failed: %w", i, err)
 			}
 		}
-		return arr, nil
 	}
-
-	// If array parsing fails, try single event
-	var single UniversalEvent
-	if err := json.Unmarshal(data, &single); err != nil {
-		return nil, fmt.Errorf("invalid JSON format - not an array or single UniversalEvent: %w", err)
-	}
-
-	if ec.validate {
-		if err := ec.validateEvent(single); err != nil {
-			return nil, fmt.Errorf("event validation failed: %w", err)
-		}
-	}
-
-	// Return single event as array with one element
-	return []UniversalEvent{single}, nil
+	return arr, nil
 }
 
 // validateEvent checks required fields and formats
@@ -89,30 +66,24 @@ func (ec *EventCompatibility) validateEvent(evt UniversalEvent) error {
 	if evt.EventType == "" {
 		return fmt.Errorf("event_type is required")
 	}
-	// Make event_type validation more flexible - allow simple names for Ruby agent compatibility
-	if len(evt.EventType) < 1 {
-		return fmt.Errorf("event_type cannot be empty")
+	if !ec.isValidEventType(evt.EventType) {
+		return fmt.Errorf("event_type must be in format 'namespace.category'")
 	}
 	if evt.Action == "" {
 		return fmt.Errorf("action is required")
 	}
-	// Make actor optional for broader SDK compatibility
-	if evt.Actor != nil {
-		if _, ok := evt.Actor["type"]; !ok {
-			return fmt.Errorf("actor.type is required when actor is present")
-		}
-		if _, ok := evt.Actor["id"]; !ok {
-			return fmt.Errorf("actor.id is required when actor is present")
-		}
+	if evt.Actor == nil {
+		return fmt.Errorf("actor is required")
+	}
+	if _, ok := evt.Actor["type"]; !ok {
+		return fmt.Errorf("actor.type is required")
+	}
+	if _, ok := evt.Actor["id"]; !ok {
+		return fmt.Errorf("actor.id is required")
 	}
 	if evt.Timestamp != "" {
 		if _, err := time.Parse(time.RFC3339, evt.Timestamp); err != nil {
-			// Try alternative timestamp formats for compatibility
-			if _, err2 := time.Parse("2006-01-02T15:04:05Z07:00", evt.Timestamp); err2 != nil {
-				if _, err3 := time.Parse("2006-01-02 15:04:05", evt.Timestamp); err3 != nil {
-					return fmt.Errorf("invalid timestamp format (use RFC3339): %w", err)
-				}
-			}
+			return fmt.Errorf("invalid timestamp format: %w", err)
 		}
 	}
 	return nil
