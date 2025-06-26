@@ -108,10 +108,12 @@ func (a *agentImpl) Start(ctx context.Context) error {
 		return err
 	}
 
+	// TODO: HTTP server conflicts with TCP server on same port
+	// Temporarily disabled until we add separate HTTP port configuration
 	// Start HTTP server (for SDK compatibility)
-	if err := a.startHTTPServer(addr); err != nil {
-		return err
-	}
+	// if err := a.startHTTPServer(addr); err != nil {
+	// 	return err
+	// }
 
 	// Start metrics server
 	if err := a.metrics.Start(ctx); err != nil {

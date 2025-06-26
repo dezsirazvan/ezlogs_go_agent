@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 
 	"github.com/dezsirazvan/ezlogs_go_agent/internal/config"
 	"github.com/sirupsen/logrus"
@@ -72,8 +73,16 @@ func (c *Collector) sendBatchInternal(ctx context.Context, batch []json.RawMessa
 		return fmt.Errorf("failed to marshal batch: %w", err)
 	}
 
+	// Determine endpoint URL
+	// If base URL already contains a path (like httpbin.org/post), use it directly
+	// Otherwise append /events for the standard EZLogs collector
+	endpoint := c.baseURL
+	if !strings.Contains(c.baseURL, "/post") && !strings.HasSuffix(c.baseURL, "/events") {
+		endpoint = c.baseURL + "/events"
+	}
+
 	// Create request
-	req, err := http.NewRequestWithContext(ctx, "POST", c.baseURL+"/events", bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, "POST", endpoint, bytes.NewReader(body))
 	if err != nil {
 		return fmt.Errorf("failed to create request: %w", err)
 	}
@@ -104,6 +113,7 @@ func (c *Collector) sendBatchInternal(ctx context.Context, batch []json.RawMessa
 	logrus.WithFields(logrus.Fields{
 		"status_code": resp.StatusCode,
 		"batch_size":  len(batch),
+		"endpoint":    endpoint,
 	}).Debug("Successfully sent batch to collector")
 
 	return nil
