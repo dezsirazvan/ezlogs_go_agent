@@ -373,16 +373,27 @@ func (a *agentImpl) checkHTTPSecurity(r *http.Request) bool {
 
 // processEvents processes events from either TCP or HTTP
 func (a *agentImpl) processEvents(data []byte, remoteAddr string) error {
-	// Log raw event data for debugging (first 1000 chars)
+	// Log complete raw event data for debugging (show more data)
 	dataPreview := string(data)
-	if len(dataPreview) > 1000 {
-		dataPreview = dataPreview[:1000] + "..."
+	if len(dataPreview) > 5000 {
+		dataPreview = dataPreview[:5000] + "..."
 	}
 	logrus.WithFields(logrus.Fields{
 		"remote":      remoteAddr,
 		"raw_data":    dataPreview,
 		"data_length": len(data),
+		"data_type":   "raw_bytes",
 	}).Info("📥 RAW EVENT DATA RECEIVED")
+
+	// Also try to pretty-print the JSON if it's valid
+	var prettyJSON interface{}
+	if err := json.Unmarshal(data, &prettyJSON); err == nil {
+		prettyBytes, _ := json.MarshalIndent(prettyJSON, "", "  ")
+		logrus.WithFields(logrus.Fields{
+			"remote":      remoteAddr,
+			"pretty_json": string(prettyBytes),
+		}).Info("📝 PRETTY FORMATTED RAW JSON")
+	}
 
 	// Validate protocol
 	if err := a.eventCompat.ValidateProtocol(data); err != nil {
@@ -397,20 +408,142 @@ func (a *agentImpl) processEvents(data []byte, remoteAddr string) error {
 		return err
 	}
 
-	// Log parsed events for debugging
-	logrus.WithFields(logrus.Fields{
-		"remote":        remoteAddr,
-		"parsed_events": events,
-	}).Info("🔍 PARSED EVENTS STRUCTURE")
+	// Log detailed parsed events structure
+	for i, event := range events {
+		eventJSON, _ := json.MarshalIndent(event, "", "  ")
+		logrus.WithFields(logrus.Fields{
+			"remote":                  remoteAddr,
+			"event_index":             i,
+			"event_json":              string(eventJSON),
+			"event_id":                event["event_id"],
+			"event_type":              event["event_type"],
+			"action":                  event["action"],
+			"has_actor":               event["actor"] != nil,
+			"has_subject":             event["subject"] != nil,
+			"has_metadata":            event["metadata"] != nil,
+			"has_correlation":         event["correlation"] != nil,
+			"has_correlation_context": event["correlation_context"] != nil,
+			"has_payload":             event["payload"] != nil,
+			"has_timing":              event["timing"] != nil,
+			"has_platform":            event["platform"] != nil,
+			"has_environment":         event["environment"] != nil,
+			"has_impact":              event["impact"] != nil,
+		}).Info("🔍 DETAILED PARSED EVENT")
+
+		// Log actor information if present
+		if actor, exists := event["actor"]; exists && actor != nil {
+			actorJSON, _ := json.MarshalIndent(actor, "", "  ")
+			logrus.WithFields(logrus.Fields{
+				"remote":      remoteAddr,
+				"event_index": i,
+				"actor":       string(actorJSON),
+			}).Info("👤 EVENT ACTOR DATA")
+		}
+
+		// Log subject information if present
+		if subject, exists := event["subject"]; exists && subject != nil {
+			subjectJSON, _ := json.MarshalIndent(subject, "", "  ")
+			logrus.WithFields(logrus.Fields{
+				"remote":      remoteAddr,
+				"event_index": i,
+				"subject":     string(subjectJSON),
+			}).Info("🎯 EVENT SUBJECT DATA")
+		}
+
+		// Log correlation information
+		if correlation, exists := event["correlation"]; exists && correlation != nil {
+			correlationJSON, _ := json.MarshalIndent(correlation, "", "  ")
+			logrus.WithFields(logrus.Fields{
+				"remote":      remoteAddr,
+				"event_index": i,
+				"correlation": string(correlationJSON),
+			}).Info("🔗 EVENT CORRELATION DATA")
+		}
+
+		// Log correlation context
+		if correlationContext, exists := event["correlation_context"]; exists && correlationContext != nil {
+			correlationContextJSON, _ := json.MarshalIndent(correlationContext, "", "  ")
+			logrus.WithFields(logrus.Fields{
+				"remote":              remoteAddr,
+				"event_index":         i,
+				"correlation_context": string(correlationContextJSON),
+			}).Info("🌐 EVENT CORRELATION CONTEXT")
+		}
+
+		// Log payload information
+		if payload, exists := event["payload"]; exists && payload != nil {
+			payloadJSON, _ := json.MarshalIndent(payload, "", "  ")
+			logrus.WithFields(logrus.Fields{
+				"remote":      remoteAddr,
+				"event_index": i,
+				"payload":     string(payloadJSON),
+			}).Info("📦 EVENT PAYLOAD DATA")
+		}
+
+		// Log metadata information
+		if metadata, exists := event["metadata"]; exists && metadata != nil {
+			metadataJSON, _ := json.MarshalIndent(metadata, "", "  ")
+			logrus.WithFields(logrus.Fields{
+				"remote":      remoteAddr,
+				"event_index": i,
+				"metadata":    string(metadataJSON),
+			}).Info("📊 EVENT METADATA")
+		}
+
+		// Log timing information
+		if timing, exists := event["timing"]; exists && timing != nil {
+			timingJSON, _ := json.MarshalIndent(timing, "", "  ")
+			logrus.WithFields(logrus.Fields{
+				"remote":      remoteAddr,
+				"event_index": i,
+				"timing":      string(timingJSON),
+			}).Info("⏱️ EVENT TIMING DATA")
+		}
+
+		// Log platform information
+		if platform, exists := event["platform"]; exists && platform != nil {
+			platformJSON, _ := json.MarshalIndent(platform, "", "  ")
+			logrus.WithFields(logrus.Fields{
+				"remote":      remoteAddr,
+				"event_index": i,
+				"platform":    string(platformJSON),
+			}).Info("💻 EVENT PLATFORM DATA")
+		}
+
+		// Log environment information
+		if environment, exists := event["environment"]; exists && environment != nil {
+			environmentJSON, _ := json.MarshalIndent(environment, "", "  ")
+			logrus.WithFields(logrus.Fields{
+				"remote":      remoteAddr,
+				"event_index": i,
+				"environment": string(environmentJSON),
+			}).Info("🏗️ EVENT ENVIRONMENT DATA")
+		}
+
+		// Log impact information
+		if impact, exists := event["impact"]; exists && impact != nil {
+			impactJSON, _ := json.MarshalIndent(impact, "", "  ")
+			logrus.WithFields(logrus.Fields{
+				"remote":      remoteAddr,
+				"event_index": i,
+				"impact":      string(impactJSON),
+			}).Info("💥 EVENT IMPACT DATA")
+		}
+	}
 
 	// Transform to collector format
 	collectorEvents := a.eventCompat.TransformToCollectorFormat(events)
 
-	// Log transformed events for debugging
-	logrus.WithFields(logrus.Fields{
-		"remote":           remoteAddr,
-		"collector_events": collectorEvents,
-	}).Info("🚀 TRANSFORMED EVENTS FOR COLLECTOR")
+	// Log detailed transformed events for collector
+	for i, collEvent := range collectorEvents {
+		collEventJSON, _ := json.MarshalIndent(collEvent, "", "  ")
+		logrus.WithFields(logrus.Fields{
+			"remote":              remoteAddr,
+			"collector_index":     i,
+			"collector_event":     string(collEventJSON),
+			"original_event_type": events[i]["event_type"],
+		}).Info("🚀 DETAILED COLLECTOR EVENT")
+	}
 
 	logrus.WithFields(logrus.Fields{
 		"remote": remoteAddr,

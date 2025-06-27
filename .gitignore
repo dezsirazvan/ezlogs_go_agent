@@ -139,3 +139,7 @@ vendor/
 # Cursor IDE configuration (keep if team-wide, ignore if personal)
 .cursorrules
 .cursor/
+# Agent logs and binaries
+agent.log
+ezlogs-agent
+main
