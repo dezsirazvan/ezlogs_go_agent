@@ -1,0 +1,9 @@
+# Fast Development Configuration - Balanced Performance & Latency
+# Good compromise between real-time and efficient batching
+
+listen: "0.0.0.0:9050"
+endpoint: "http://localhost:3000/api/events"
+api_key: "17383f0a488c6bb320d883307da658c2644a036984f262a04bb6d3ea928fb152"
+interval: 500ms    # Send every 500ms (half second)
+batch: 10         # Send after 10 events or 500ms
+queue: 1000 
